@@ -7,6 +7,12 @@ CORS(app)
 # Track how many responses we've assigned
 assigned_count = 0
 
+@app.route('/warmup', methods=['GET', 'POST'])
+def warmup():
+    """This endpoint is used to make a dummy connection to reduce latency."""
+    print("[Warmup] Connection established")
+    return jsonify({'status': 'ok', 'message': 'Connection warmed up'})
+
 @app.route('/assign', methods=['POST'])
 def assign():
     global assigned_count
