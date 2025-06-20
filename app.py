@@ -1,39 +1,63 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+import threading
 
 app = Flask(__name__)
 CORS(app)
 
-# Track how many responses we've assigned
+# In-memory store
+stored_presets = []
 assigned_count = 0
+lock = threading.Lock()
 
-@app.route('/warmup', methods=['GET', 'POST'])
-def warmup():
-    """This endpoint is used to make a dummy connection to reduce latency."""
-    print("[Warmup] Connection established")
-    return jsonify({'status': 'ok', 'message': 'Connection warmed up'})
 
-@app.route('/assign', methods=['POST'])
-def assign():
-    global assigned_count
+@app.route('/set-presets', methods=['POST'])
+def set_presets():
+    """Receive and store the preset options once."""
+    global stored_presets, assigned_count
 
     data = request.get_json()
     options = data.get('options', [])
 
-    if not isinstance(options, list) or len(options) == 0:
-        return jsonify({'status': 'error', 'message': 'Invalid or missing "options" list'}), 400
+    if not isinstance(options, list) or not options:
+        return jsonify({'status': 'error', 'message': 'Invalid or missing options'}), 400
 
-    if assigned_count < len(options):
-        assigned = options[assigned_count]
-        print(f"[Assigned {assigned_count + 1}] {assigned}")
-    else:
-        assigned = options[0]  # fallback is the first item of the latest request
-        print(f"[Fallback used] {assigned}")
+    with lock:
+        stored_presets = options
+        assigned_count = 0  # Reset assignment count when new options come in
 
-    assigned_count += 1
+    print(f"[Presets Stored] {len(options)} items")
+    return jsonify({'status': 'ok', 'message': f'{len(options)} presets stored'})
+
+
+@app.route('/assign', methods=['GET'])
+def assign():
+    """Return the next assignment without needing the presets in request."""
+    global assigned_count
+
+    with lock:
+        if not stored_presets:
+            return jsonify({'status': 'error', 'message': 'No presets stored yet'}), 400
+
+        if assigned_count < len(stored_presets):
+            assigned = stored_presets[assigned_count]
+            print(f"[Assigned {assigned_count + 1}] {assigned}")
+        else:
+            assigned = stored_presets[0]  # fallback
+            print(f"[Fallback used] {assigned}")
+
+        assigned_count += 1
 
     return jsonify({'status': 'ok', 'assigned': assigned})
 
-# Optional block for running locally (not used by Azure)
+
+@app.route('/warmup', methods=['GET'])
+def warmup():
+    """Used to establish early connection (cold start prevention)."""
+    print("[Warmup] Dummy connection hit")
+    return jsonify({'status': 'ok', 'message': 'Connection warmed up'})
+
+
+# Optional for local testing
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
