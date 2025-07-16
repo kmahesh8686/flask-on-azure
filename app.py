@@ -7,46 +7,50 @@ CORS(app)
 
 # In-memory store
 stored_presets = []
+default_preset = None
 assigned_count = 0
 lock = threading.Lock()
 
 
 @app.route('/set-presets', methods=['POST'])
 def set_presets():
-    """Receive and store the preset options once."""
-    global stored_presets, assigned_count
+    """Receive and store the preset options and default."""
+    global stored_presets, assigned_count, default_preset
 
     data = request.get_json()
     options = data.get('options', [])
+    default = data.get('default')
 
     if not isinstance(options, list) or not options:
         return jsonify({'status': 'error', 'message': 'Invalid or missing options'}), 400
+    if not default:
+        return jsonify({'status': 'error', 'message': 'Missing default preset'}), 400
 
     with lock:
         stored_presets = options
-        assigned_count = 0  # Reset assignment count when new options come in
+        default_preset = default
+        assigned_count = 0
 
-    print(f"[Presets Stored] {len(options)} items")
-    return jsonify({'status': 'ok', 'message': f'{len(options)} presets stored'})
+    print(f"[Presets Stored] {len(options)} presets, default: {default}")
+    return jsonify({'status': 'ok', 'message': f'{len(options)} presets stored with default'})
 
 
 @app.route('/assign', methods=['GET'])
 def assign():
-    """Return the next assignment without needing the presets in request."""
+    """Return the next assignment, fallback to default after presets exhausted."""
     global assigned_count
 
     with lock:
-        if not stored_presets:
-            return jsonify({'status': 'error', 'message': 'No presets stored yet'}), 400
+        if not stored_presets or default_preset is None:
+            return jsonify({'status': 'error', 'message': 'Presets or default not set'}), 400
 
         if assigned_count < len(stored_presets):
             assigned = stored_presets[assigned_count]
             print(f"[Assigned {assigned_count + 1}] {assigned}")
+            assigned_count += 1
         else:
-            assigned = stored_presets[0]  # fallback
-            print(f"[Fallback used] {assigned}")
-
-        assigned_count += 1
+            assigned = default_preset
+            print(f"[Default Returned] {assigned}")
 
     return jsonify({'status': 'ok', 'assigned': assigned})
 
@@ -58,6 +62,6 @@ def warmup():
     return jsonify({'status': 'ok', 'message': 'Connection warmed up'})
 
 
-# Optional for local testing
+# Local testing
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
